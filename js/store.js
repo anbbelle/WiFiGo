@@ -1,10 +1,101 @@
-/* Lapisan data. Sekarang memakai localStorage; nanti ganti isi fungsi ini
-   dengan google.script.run agar terhubung ke Google Sheets. */
+/* Lapisan data WiFigo.
+   - API_URL kosong  -> mode lokal (localStorage, data hanya di browser ini).
+   - API_URL terisi  -> data disimpan di Google Sheets lewat Apps Script, dipakai bersama. */
+const API_URL='https://script.googleusercontent.com/macros/echo?user_content_key=AUkAhnQG39oOC_TdTnP8UG2Rbs6e7ReaLuZ6s2CnNapSdk4rNuleJkFLBgkLnzD21rXxbU3CB8JJPKeqIu8iu4YaUzOvdATdnCjURO8I7g4zzTZqCZWoMZjnOWWI295XH2R1u8D7A0BRb1f0crP2sOnfNMjtPW08p1XUDA-yC1opMrrB0nUyf-8urtP0QOwJePUjBtzfHnc1mkpVIgUGYeuxNwksdVvBQeqLWaL6O_s40mmDGIysPH38dDH92BV9EpkYDX_vOjBF5lRzZsKiXXlwjkcjxDALpg&lib=Myogn_-ijyvGDvZ-grLogQ80z9iZr1HTN'; // tempel URL Web App Apps Script (berakhiran /exec) di sini
+
 const Store=(()=>{
-  const K='wifigo_v1';
-  const d=JSON.parse(localStorage.getItem(K)||'null')||{customers:[],invoices:[],payments:[],expenses:[],audit:[],seq:{c:0,i:0,p:0,e:0}};
-  d.incomes=d.incomes||[];d.seq.n=d.seq.n||0;
-  const save=()=>localStorage.setItem(K,JSON.stringify(d));
+  const K='wifigo_v1',PWK='wifigo_pw',ONLINE=!!API_URL;
+  const blank=()=>({customers:[],invoices:[],payments:[],expenses:[],incomes:[],audit:[],seq:{c:0,i:0,p:0,e:0,n:0}});
+  const d=blank();
+  // isi d di tempat (referensi d tidak boleh berganti karena dipakai app.js)
+  const fill=x=>{
+    const b=blank();x=x&&typeof x==='object'?x:{};
+    Object.keys(b).forEach(k=>{if(x[k]===undefined)x[k]=b[k];});
+    x.seq=Object.assign(b.seq,x.seq);
+    Object.keys(d).forEach(k=>delete d[k]);Object.assign(d,x);
+  };
+
+  let pw=localStorage.getItem(PWK)||'',rev=0,dirty=false,busy=false,el=null;
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const notify=(m,err)=>{if(typeof toast==='function')toast(m,err);};
+  const status=(t,err)=>{
+    if(!ONLINE)return;
+    if(!el){el=document.createElement('div');el.style.cssText='margin-top:auto;font-size:12px;padding:8px 12px;color:#6b7689';
+      const nav=document.getElementById('nav');(nav||document.body).appendChild(el);}
+    el.textContent=t;el.style.color=err?'#b42318':'#6b7689';
+  };
+
+  async function api(body){
+    // tanpa header khusus supaya tidak memicu preflight CORS
+    const res=await fetch(API_URL,{method:'POST',body:JSON.stringify({...body,pw})});
+    if(!res.ok)throw new Error('Server membalas '+res.status);
+    return res.json();
+  }
+  const askPw=msg=>new Promise(res=>{
+    const m=document.getElementById('modal');
+    m.innerHTML=`<form><h2>Masuk ke WiFigo</h2><div class="f"><label>Password</label><input type="password" name="pw" required></div><small class="fe">${msg||''}</small><div class="row" style="justify-content:flex-end"><button class="pri">Masuk</button></div></form>`;
+    m.hidden=false;
+    m.querySelector('form').onsubmit=e=>{e.preventDefault();const v=e.target.pw.value;m.hidden=true;m.innerHTML='';res(v);};
+    setTimeout(()=>m.querySelector('input').focus(),0);
+  });
+  const relogin=async msg=>{localStorage.removeItem(PWK);pw=await askPw(msg);};
+
+  async function init(){
+    if(!ONLINE){fill(JSON.parse(localStorage.getItem(K)||'null'));return;}
+    let err='';
+    for(;;){
+      if(!pw)pw=await askPw(err);
+      const r=await api({action:'load'});
+      if(r.auth){localStorage.removeItem(PWK);pw='';err='Password salah';continue;}
+      if(!r.ok)throw new Error(r.error||'Gagal memuat data');
+      localStorage.setItem(PWK,pw);rev=r.rev;
+      if(r.data)fill(r.data);
+      else{ // server masih kosong: tawarkan data lama dari browser ini
+        fill(null);
+        const old=JSON.parse(localStorage.getItem(K)||'null');
+        if(old&&((old.customers||[]).length||(old.invoices||[]).length)&&confirm('Server masih kosong, tapi ada data lama di browser ini. Upload data lama ke server?')){fill(old);dirty=true;flush();}
+      }
+      break;
+    }
+    status('Tersimpan ✓');
+    setInterval(refresh,15000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
+    window.addEventListener('beforeunload',e=>{if(dirty||busy){e.preventDefault();e.returnValue='';}});
+  }
+
+  async function refresh(){
+    if(!ONLINE||busy||dirty||document.hidden)return;
+    let r;try{r=await api({action:'load'});}catch(e){return;}
+    if(!r.ok||r.rev===rev||busy||dirty)return;
+    const mod=document.getElementById('modal'),ae=document.activeElement;
+    if((mod&&!mod.hidden)||(ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)))return; // jangan ganggu yang sedang mengisi
+    rev=r.rev;fill(r.data);if(typeof render==='function')render();
+  }
+
+  async function flush(){
+    if(busy)return;busy=true;
+    try{
+      while(dirty){
+        dirty=false;status('Menyimpan…');
+        let r;
+        try{r=await api({action:'save',rev,data:d});}
+        catch(e){dirty=true;status('Gagal menyimpan, mencoba lagi…',1);await sleep(4000);continue;}
+        if(r.ok){rev=r.rev;}
+        else if(r.conflict){
+          rev=r.rev;fill(r.data);dirty=false;
+          notify('Data baru saja diubah pengguna lain. Perubahan terakhirmu tidak tersimpan, silakan ulangi.',1);
+          if(typeof render==='function')render();
+        }
+        else if(r.auth){dirty=true;await relogin('Password salah atau sudah diganti');}
+        else{dirty=true;status('Gagal menyimpan: '+(r.error||'error'),1);await sleep(4000);continue;}
+      }
+      status('Tersimpan ✓');
+    }finally{busy=false;}
+  }
+  const save=()=>{
+    if(!ONLINE){localStorage.setItem(K,JSON.stringify(d));return;}
+    dirty=true;flush();
+  };
   const nid=(k,p)=>p+String(++d.seq[k]).padStart(4,'0');
   const log=(aksi,detail)=>{d.audit.push({waktu:new Date().toISOString(),aksi,detail});};
   const num=v=>{v=Number(String(v).replace(/\./g,''));if(!isFinite(v)||v<=0)throw new Error('Nominal harus lebih dari 0');return v;};
@@ -19,7 +110,7 @@ const Store=(()=>{
     return{paid,pending,left:Math.max(0,i.amount-paid),status:paid>=i.amount?'Lunas':paid>0?'Sebagian':'Belum lunas'};
   }
   return{
-    d,calc,
+    d,calc,init,
     customer:id=>d.customers.find(c=>c.id===id),
     saveCustomer(x){
       if(!x.name.trim())throw new Error('Nama wajib diisi');
