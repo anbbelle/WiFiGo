@@ -12,7 +12,7 @@
 </head>
 <body>
 <nav id="nav">
-  <div class="brand"><span class="logo"><svg viewBox="0 .5 24 24"><path d="M1.4 9a16 16 0 0 1 21.2 0M5 12.6a11 11 0 0 1 14.1 0M8.5 16.1a6 6 0 0 1 7 0M12 20h.01"/></svg></span>WiFigo</div>
+  <div class="brand"><span class="logo"><svg viewBox="0 .3 24 24"><path d="M2 8.8a15 15 0 0 1 20 0M5.5 12.4a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1.4" fill="#fff"/></svg></span>WiFigo</div>
   <a href="#dashboard"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Dashboard</a>
   <a href="#pelanggan"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>Pelanggan</a>
   <a href="#tagihan"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>Tagihan</a>
@@ -28,6 +28,10 @@
 <div id="toast" class="toast" hidden></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <script src="js/store.js"></script>
-<script src="js/app.js"></script>
+<script>
+document.getElementById('view').innerHTML='<div class="empty">Memuat data…</div>';
+Store.init().then(()=>{const s=document.createElement('script');s.src='js/app.js';document.body.appendChild(s);})
+.catch(e=>{document.getElementById('view').innerHTML='<div class="empty">Gagal memuat data: '+String(e.message).replace(/</g,'&lt;')+'<br><br><button onclick="location.reload()">Coba lagi</button></div>';});
+</script>
 </body>
 </html>
