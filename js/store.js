@@ -1,7 +1,7 @@
 /* Lapisan data WiFigo.
    - API_URL kosong  -> mode lokal (localStorage, data hanya di browser ini).
    - API_URL terisi  -> data disimpan di Google Sheets lewat Apps Script, dipakai bersama. */
-const API_URL='https://script.googleusercontent.com/macros/echo?user_content_key=AUkAhnQG39oOC_TdTnP8UG2Rbs6e7ReaLuZ6s2CnNapSdk4rNuleJkFLBgkLnzD21rXxbU3CB8JJPKeqIu8iu4YaUzOvdATdnCjURO8I7g4zzTZqCZWoMZjnOWWI295XH2R1u8D7A0BRb1f0crP2sOnfNMjtPW08p1XUDA-yC1opMrrB0nUyf-8urtP0QOwJePUjBtzfHnc1mkpVIgUGYeuxNwksdVvBQeqLWaL6O_s40mmDGIysPH38dDH92BV9EpkYDX_vOjBF5lRzZsKiXXlwjkcjxDALpg&lib=Myogn_-ijyvGDvZ-grLogQ80z9iZr1HTN'; // tempel URL Web App Apps Script (berakhiran /exec) di sini
+const API_URL='https://script.google.com/macros/s/AKfycbwT4LwFlU-tTbB4BIWtEElU-VDkLehelF65c3RQs7z1cCFLHp80Zkq4xzubH6R-Whp6mg/exec'; // tempel URL Web App Apps Script (berakhiran /exec) di sini
 
 const Store=(()=>{
   const K='wifigo_v1',PWK='wifigo_pw',ONLINE=!!API_URL;
