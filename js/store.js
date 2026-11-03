@@ -3,8 +3,6 @@
    - API_URL terisi  -> data disimpan di Google Sheets lewat Apps Script, dipakai bersama. */
 const API_URL='https://script.google.com/macros/s/AKfycbwT4LwFlU-tTbB4BIWtEElU-VDkLehelF65c3RQs7z1cCFLHp80Zkq4xzubH6R-Whp6mg/exec'; // tempel URL Web App Apps Script (berakhiran /exec) di sini
 
-const DUE_DAY=10; // tanggal jatuh tempo bawaan jika pelanggan belum punya (1-28)
-
 const Store=(()=>{
   const K='wifigo_v1',PWK='wifigo_pw',ONLINE=!!API_URL;
   const blank=()=>({customers:[],invoices:[],payments:[],expenses:[],incomes:[],audit:[],seq:{c:0,i:0,p:0,e:0,n:0}});
@@ -104,8 +102,12 @@ const Store=(()=>{
   const wa=v=>{v=String(v||'');if(!/^08\d{8,11}$/.test(v))throw new Error('Nomor WhatsApp harus diawali 08 dan 10–13 digit');return v;};
   const date=v=>{if(!v||isNaN(new Date(v)))throw new Error('Tanggal tidak valid');return v;};
   const sum=a=>a.reduce((s,x)=>s+x.amount,0);
-  const dueDay=c=>c.dueDay||DUE_DAY;
-  const dueFor=(c,p)=>{const x=p+'-'+String(dueDay(c)).padStart(2,'0');return x<c.start?c.start:x;}; // jatuh tempo per pelanggan
+  // Siklus per pelanggan: tanggal mulai berlangganan = tanggal tagihan tiap bulan, jatuh tempo = sebulan setelahnya
+  const nextM=p=>{const[y,m]=p.split('-').map(Number);return m===12?`${y+1}-01`:`${y}-${String(m+1).padStart(2,'0')}`;};
+  const dueDay=c=>Number(c.start.slice(8,10));
+  const cyc=(c,p)=>{const[y,m]=p.split('-').map(Number);return p+'-'+String(Math.min(dueDay(c),new Date(y,m,0).getDate())).padStart(2,'0');}; // tanggal mulai siklus bulan p
+  const dueFor=(c,p)=>cyc(c,nextM(p)); // mulai 3 Nov -> jatuh tempo 3 Des
+  const localToday=()=>{const t=new Date();return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;};
 
   function calc(i){
     const ps=d.payments.filter(p=>p.invoiceId===i.id);
@@ -120,7 +122,6 @@ const Store=(()=>{
       if(!x.name.trim())throw new Error('Nama wajib diisi');
       x.fee=num(x.fee);x.wa=wa(x.wa);
       date(x.start);
-      x.dueDay=Number(x.dueDay);if(!Number.isInteger(x.dueDay)||x.dueDay<1||x.dueDay>28)throw new Error('Tanggal jatuh tempo harus 1–28');
       if(x.id){Object.assign(Store.customer(x.id),x);log('Ubah pelanggan',x.id);}
       else{x.id=nid('c','P');d.customers.push(x);log('Tambah pelanggan',x.id);}
       save();
@@ -128,19 +129,26 @@ const Store=(()=>{
     // cid kosong = semua pelanggan aktif; own=true -> jatuh tempo ikut tanggal tiap pelanggan
     generate(period,due,cid,own){
       if(!own)date(due);let n=0;
-      d.customers.filter(c=>c.status==='Aktif'&&(!cid||c.id===cid)).forEach(c=>{
+      d.customers.filter(c=>c.status==='Aktif'&&(!cid||c.id===cid)&&c.start.slice(0,7)<=period).forEach(c=>{
         if(d.invoices.some(i=>i.customerId===c.id&&i.period===period&&i.type==='Langganan'))return;
         d.invoices.push({id:`INV-${period.replace('-','')}-${c.id}`,customerId:c.id,period,due:own?dueFor(c,period):due,amount:c.fee,type:'Langganan'});n++;
       });
       log('Buat tagihan bulanan',`${period}: ${n}`);save();return n;
     },
-    // Buat tagihan bulan ini otomatis untuk pelanggan aktif yang belum punya (aman dipanggil berulang)
+    // Otomatis: buat tagihan bulan ini saat tanggal siklus pelanggan tiba, dan samakan jatuh tempo tagihan yang belum dibayar (aman dipanggil berulang)
     auto(){
-      const t=new Date(),p=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0');
-      const need=d.customers.filter(c=>c.status==='Aktif'&&c.start<=p+'-31'&&!d.invoices.some(i=>i.customerId===c.id&&i.period===p&&i.type==='Langganan'));
-      if(!need.length)return 0;
+      const t=localToday(),p=t.slice(0,7);let ch=0;
+      d.invoices.forEach(i=>{
+        if(i.type!=='Langganan'||d.payments.some(x=>x.invoiceId===i.id))return;
+        const c=Store.customer(i.customerId);if(!c||!c.start)return;
+        const x=dueFor(c,i.period);if(i.due!==x){i.due=x;ch++;}
+      });
+      const need=d.customers.filter(c=>c.status==='Aktif'&&cyc(c,p)>=c.start&&cyc(c,p)<=t&&!d.invoices.some(i=>i.customerId===c.id&&i.period===p&&i.type==='Langganan'));
+      if(!need.length&&!ch)return 0;
       need.forEach(c=>d.invoices.push({id:`INV-${p.replace('-','')}-${c.id}`,customerId:c.id,period:p,due:dueFor(c,p),amount:c.fee,type:'Langganan'}));
-      log('Tagihan otomatis',`${p}: ${need.length}`);save();return need.length;
+      if(need.length)log('Tagihan otomatis',`${p}: ${need.length}`);
+      if(ch)log('Sinkron jatuh tempo',`${ch} tagihan`);
+      save();return need.length;
     },
     addPayment(x){
       const inv=d.invoices.find(i=>i.id===x.invoiceId);
