@@ -5,7 +5,7 @@ const tgl=s=>s?new Date(s+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric'
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const today=()=>new Date().toISOString().slice(0,10);
 const thisMonth=()=>today().slice(0,7);
-const tag=(t)=>{const m={Lunas:'ok',Terverifikasi:'ok',Aktif:'ok',Sebagian:'warn','Menunggu verifikasi':'warn','Belum lunas':'bad',Nonaktif:'off'};return `<span class="tag t-${m[t]||'off'}">${t}</span>`;};
+const tag=(t)=>{const m={Lunas:'ok',Terverifikasi:'ok',Aktif:'ok',Sebagian:'warn','Menunggu verifikasi':'warn','Belum lunas':'bad',Terlambat:'bad',Nonaktif:'off'};return `<span class="tag t-${m[t]||'off'}">${t}</span>`;};
 const empty=t=>`<div class="empty">${t}</div>`;
 const q={};
 const BULAN=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -58,8 +58,8 @@ dashboard(){
    <p class="note">Hanya pembayaran terverifikasi yang dihitung sebagai uang diterima. Estimasi laba = pemasukan terverifikasi (termasuk pemasukan lain) − pengeluaran dan belum tentu sama dengan laba akuntansi formal.</p>`;
 },
 pelanggan(){
-  const rows=D.customers.filter(c=>hit('pelanggan',c.id,c.name,c.address,c.wa)).map(c=>`<tr><td>${c.id}</td><td>${esc(c.name)}</td><td>${esc(c.wa)}</td><td>${esc(c.service)}</td><td>${rp(c.fee)}</td><td>${tag(c.status)}</td><td><button class="sm" data-edit="${c.id}">Edit</button></td></tr>`);
-  return head('Pelanggan',searchBox('pelanggan')+'<button class="pri" id="add">Tambah pelanggan</button>')+table(['ID','Nama','WhatsApp','Layanan','Biaya/bulan','Status',''],rows,'Belum ada pelanggan. Klik “Tambah pelanggan” untuk memulai.');
+  const rows=D.customers.filter(c=>hit('pelanggan',c.id,c.name,c.address,c.wa)).map(c=>`<tr><td>${c.id}</td><td>${esc(c.name)}</td><td>${esc(c.wa)}</td><td>${esc(c.service)}</td><td>${rp(c.fee)}</td><td>Tgl ${Store.dueDay(c)}</td><td>${tag(c.status)}</td><td><button class="sm" data-edit="${c.id}">Edit</button></td></tr>`);
+  return head('Pelanggan',searchBox('pelanggan')+'<button class="pri" id="add">Tambah pelanggan</button>')+table(['ID','Nama','WhatsApp','Layanan','Biaya/bulan','Jatuh tempo','Status',''],rows,'Belum ada pelanggan. Klik “Tambah pelanggan” untuk memulai.');
 },
 tagihan(){
   const rows=D.invoices.filter(i=>hit('tagihan',i.id,Store.customer(i.customerId)?.name)).slice().reverse().map(i=>{const c=Store.calc(i),cu=Store.customer(i.customerId);
@@ -97,16 +97,21 @@ function custForm(c={}){
     {n:'name',label:'Nama',v:c.name,req:1},{n:'address',label:'Alamat',v:c.address,area:1},
     {n:'wa',label:'Nomor WhatsApp',t:'wa',v:c.wa,req:1},{n:'start',label:'Mulai berlangganan',t:'date',v:c.start||today(),req:1},
     {n:'fee',label:'Biaya bulanan (Rp)',t:'money',v:c.fee,req:1},
+    {n:'dueDay',label:'Tanggal jatuh tempo tiap bulan (1–28)',t:'number',v:Store.dueDay(c),req:1},
     {n:'service',label:'Jenis layanan',opts:['Wi-Fi bulanan','Wi-Fi + CCTV','Wi-Fi + Android'],v:c.service},
     {n:'status',label:'Status',opts:['Aktif','Nonaktif'],v:c.status||'Aktif'},{n:'note',label:'Catatan',v:c.note,area:1}
-  ],x=>{x.id=c.id;Store.saveCustomer(x);toast('Pelanggan tersimpan');});
+  ],x=>{x.id=c.id;Store.saveCustomer(x);const n=Store.auto();toast(n?'Pelanggan tersimpan, tagihan bulan ini dibuat':'Pelanggan tersimpan');});
 }
 
 document.addEventListener('click',e=>{
   const t=e.target,id=t.id,ds=t.dataset;
   if(id==='add')custForm();
   if(ds.edit)custForm(Store.customer(ds.edit));
-  if(id==='gen')openForm('Buat tagihan bulanan',[{n:'period',label:'Periode',t:'month',v:thisMonth(),req:1},{n:'due',label:'Jatuh tempo',t:'date',v:today(),req:1}],x=>{const n=Store.generate(x.period,x.due);toast(n?`${n} tagihan dibuat`:'Semua tagihan periode ini sudah ada');},'Buat');
+  if(id==='gen')openForm('Buat tagihan bulanan',[{n:'period',label:'Periode',t:'month',v:thisMonth(),req:1},
+    {n:'cid',label:'Pelanggan',opts:[['','Semua pelanggan aktif'],...D.customers.filter(c=>c.status==='Aktif').map(c=>[c.id,`${c.id} — ${c.name} (jatuh tempo tgl ${Store.dueDay(c)})`])]},
+    {n:'mode',label:'Jatuh tempo',opts:[['own','Ikuti tanggal tiap pelanggan'],['custom','Tentukan tanggal sendiri']],v:'own'},
+    {n:'due',label:'Tanggal (hanya dipakai jika “Tentukan tanggal sendiri”)',t:'date',v:today()}],
+    x=>{const n=Store.generate(x.period,x.due,x.cid,x.mode==='own');toast(n?`${n} tagihan dibuat`:'Tagihan periode ini sudah ada');},'Buat');
   if(id==='pay')payForm();
   if(ds.pay)payForm(ds.pay);
   if(ds.verify&&confirm('Pastikan dana sudah masuk ke rekening. Verifikasi pembayaran ini?')){Store.verify(ds.verify);toast('Pembayaran terverifikasi');render();}
@@ -134,12 +139,20 @@ const kartu=(l,v,s='')=>`<div class="card"><small>${l}</small><b>${v}</b><i>${s}
 const msg=(i,cu,c)=>`Halo ${cu.name}, kami mengingatkan tagihan Wi-Fi periode ${i.period} sebesar ${rp(c.left)} (jatuh tempo ${tgl(i.due)}). Jika sudah transfer, mohon kirim bukti transfer agar kami catat. Terima kasih.`;
 
 pages.pemasukan=()=>{
-  const rows=D.incomes.filter(x=>hit('pemasukan',x.id,x.category,x.desc)).slice().reverse().map(x=>`<tr><td>${x.id}</td><td>${tgl(x.date)}</td><td>${x.category}</td><td>${esc(x.desc)}</td><td>${rp(x.amount)}</td></tr>`);
-  return head('Pemasukan lain',searchBox('pemasukan')+'<button class="pri" id="inc">Tambah pemasukan</button>')+`<p class="note">Pembayaran tagihan pelanggan dicatat di menu Pembayaran dan tidak perlu diinput lagi di sini, supaya tidak terhitung dua kali.</p>`+table(['ID','Tanggal','Sumber','Deskripsi','Nominal'],rows,'Belum ada pemasukan lain.');
+  const m=q.month||thisMonth(),nm=id=>Store.customer(D.invoices.find(i=>i.id===id)?.customerId)?.name||'-';
+  const pay=D.payments.filter(p=>p.date.startsWith(m)&&hit('pemasukan',p.id,p.invoiceId,nm(p.invoiceId))).map(p=>({date:p.date,id:p.id,cat:'Pembayaran pelanggan',desc:`${p.invoiceId} — ${nm(p.invoiceId)} (${p.method})`,amount:p.amount,st:tag(p.status),ok:p.status==='Terverifikasi'}));
+  const lain=D.incomes.filter(x=>x.date.startsWith(m)&&hit('pemasukan',x.id,x.category,x.desc)).map(x=>({date:x.date,id:x.id,cat:x.category,desc:x.desc,amount:x.amount,st:'-',ok:1}));
+  const all=[...pay,...lain].sort((a,b)=>a.date<b.date?1:-1),S=a=>a.filter(x=>x.ok).reduce((s,x)=>s+x.amount,0);
+  const rows=all.map(x=>`<tr><td>${x.id}</td><td>${tgl(x.date)}</td><td>${x.cat}</td><td>${esc(x.desc)}</td><td>${rp(x.amount)}</td><td>${x.st}</td></tr>`);
+  return head('Pemasukan',`${mpick(m,'id="month"')}${searchBox('pemasukan')}<button class="pri" id="inc">Tambah pemasukan lain</button>`)+
+  `<div class="grid">${kartu('Dari pembayaran pelanggan',rp(S(pay)),'Terverifikasi, otomatis dari menu Pembayaran')}${kartu('Pemasukan lain',rp(S(lain)),'Diinput manual')}${kartu('Total pemasukan',rp(S(all)))}</div>
+  <p class="note">Pembayaran pelanggan masuk otomatis ke sini setelah dicatat di menu Pembayaran. Hanya yang berstatus Terverifikasi yang dihitung di total. Pemasukan lain (jasa pemasangan dll.) diinput lewat tombol di atas.</p>`+
+  table(['ID','Tanggal','Sumber','Deskripsi','Nominal','Status'],rows,'Belum ada pemasukan pada bulan ini.');
 };
 pages.pengingat=()=>{
-  const rows=D.invoices.map(i=>[i,Store.calc(i),Store.customer(i.customerId)]).filter(([i,c,cu])=>c.left>0&&hit('pengingat',i.id,cu?.name)).map(([i,c,cu])=>`<tr><td>${esc(cu?.name)}</td><td>${i.period}</td><td>${tgl(i.due)}</td><td>${rp(i.amount)}</td><td>${rp(c.left)}</td><td>${c.pending?tag('Menunggu verifikasi'):'-'}</td><td><button class="sm" data-copy="${i.id}">Salin pesan WA</button></td></tr>`);
-  return head('Pengingat pembayaran',searchBox('pengingat'))+table(['Pelanggan','Periode','Jatuh tempo','Nominal','Sisa','Transfer','' ],rows,'Semua tagihan sudah lunas.');
+  const late=i=>Math.round((new Date(today())-new Date(i.due))/864e5);
+  const rows=D.invoices.slice().sort((a,b)=>a.due<b.due?-1:1).map(i=>[i,Store.calc(i),Store.customer(i.customerId)]).filter(([i,c,cu])=>c.left>0&&hit('pengingat',i.id,cu?.name)).map(([i,c,cu])=>`<tr><td>${esc(cu?.name)}</td><td>${i.period}</td><td>${tgl(i.due)}</td><td>${late(i)>0?tag('Terlambat')+' '+late(i)+' hari':late(i)===0?'Jatuh tempo hari ini':-late(i)+' hari lagi'}</td><td>${rp(i.amount)}</td><td>${rp(c.left)}</td><td>${c.pending?tag('Menunggu verifikasi'):'-'}</td><td><button class="sm" data-wasend="${i.id}">Kirim WA</button> <button class="sm" data-copy="${i.id}">Salin pesan</button></td></tr>`);
+  return head('Pengingat pembayaran',searchBox('pengingat'))+table(['Pelanggan','Periode','Jatuh tempo','Keterangan','Nominal','Sisa','Transfer','' ],rows,'Semua tagihan sudah lunas.');
 };
 pages.audit=()=>head('Audit log')+table(['Waktu','Aksi','Detail'],D.audit.slice().reverse().map(a=>`<tr><td>${new Date(a.waktu).toLocaleString('id-ID')}</td><td>${esc(a.aksi)}</td><td>${esc(a.detail)}</td></tr>`),'Belum ada aktivitas tercatat.');
 
@@ -244,6 +257,10 @@ document.addEventListener('click',e=>{
   if(id==='svc'){
     const cs=D.customers.filter(c=>c.status==='Aktif');if(!cs.length)return toast('Belum ada pelanggan aktif',1);
     openForm('Tagihan jasa tambahan',[{n:'customerId',label:'Pelanggan',opts:cs.map(c=>[c.id,`${c.id} — ${c.name}`])},{n:'desc',label:'Jenis jasa',req:1},{n:'amount',label:'Nominal (Rp)',t:'money',req:1},{n:'due',label:'Jatuh tempo',t:'date',v:today(),req:1}],x=>{Store.addService(x);toast('Tagihan jasa dibuat');},'Buat');
+  }
+  if(ds.wasend){
+    const i=D.invoices.find(x=>x.id===ds.wasend),cu=Store.customer(i.customerId);
+    window.open('https://wa.me/62'+cu.wa.slice(1)+'?text='+encodeURIComponent(msg(i,cu,Store.calc(i))),'_blank');
   }
   if(ds.copy){
     const i=D.invoices.find(x=>x.id===ds.copy),m=msg(i,Store.customer(i.customerId),Store.calc(i));
