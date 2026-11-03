@@ -58,7 +58,7 @@ dashboard(){
    <p class="note">Hanya pembayaran terverifikasi yang dihitung sebagai uang diterima. Estimasi laba = pemasukan terverifikasi (termasuk pemasukan lain) − pengeluaran dan belum tentu sama dengan laba akuntansi formal.</p>`;
 },
 pelanggan(){
-  const rows=D.customers.filter(c=>hit('pelanggan',c.id,c.name,c.address,c.wa)).map(c=>`<tr><td>${c.id}</td><td>${esc(c.name)}</td><td>${esc(c.wa)}</td><td>${esc(c.service)}</td><td>${rp(c.fee)}</td><td>${c.start?'Tgl '+Store.dueDay(c):'-'}</td><td>${tag(c.status)}</td><td><button class="sm" data-edit="${c.id}">Edit</button></td></tr>`);
+  const rows=D.customers.filter(c=>hit('pelanggan',c.id,c.name,c.address,c.wa)).map(c=>`<tr><td>${c.id}</td><td>${esc(c.name)}</td><td>${esc(c.wa)}</td><td>${esc(c.service)}</td><td>${rp(c.fee)}</td><td>${c.start?'Tgl '+Store.dueDay(c):'-'}</td><td>${tag(c.status)}</td><td><button class="sm" data-edit="${c.id}">Edit</button> <button class="sm" data-del="${c.id}" style="color:#b42318">Hapus</button></td></tr>`);
   return head('Pelanggan',searchBox('pelanggan')+'<button class="pri" id="add">Tambah pelanggan</button>')+table(['ID','Nama','WhatsApp','Layanan','Biaya/bulan','Jatuh tempo','Status',''],rows,'Belum ada pelanggan. Klik “Tambah pelanggan” untuk memulai.');
 },
 tagihan(){
@@ -106,6 +106,12 @@ document.addEventListener('click',e=>{
   const t=e.target,id=t.id,ds=t.dataset;
   if(id==='add')custForm();
   if(ds.edit)custForm(Store.customer(ds.edit));
+  if(ds.del){
+    const c=Store.customer(ds.del),u=Store.usage(ds.del);
+    if(confirm(`Hapus pelanggan ${c.name} (${c.id})?\n\nIkut terhapus: ${u.inv} tagihan dan ${u.pay} pembayaran.\nTindakan ini tidak bisa dibatalkan.`)&&(!u.pay||confirm('Ada pembayaran yang tercatat. Pemasukan di Dashboard dan Laporan akan ikut berkurang. Tetap hapus?'))){
+      Store.removeCustomer(ds.del);toast('Pelanggan dihapus');render();
+    }
+  }
   if(id==='gen')openForm('Buat tagihan bulanan',[{n:'period',label:'Periode',t:'month',v:thisMonth(),req:1},
     {n:'cid',label:'Pelanggan',opts:[['','Semua pelanggan aktif'],...D.customers.filter(c=>c.status==='Aktif').map(c=>[c.id,`${c.id} — ${c.name} (tagihan tiap tgl ${Store.dueDay(c)})`])]},
     {n:'mode',label:'Jatuh tempo',opts:[['own','Sebulan setelah tanggal mulai pelanggan'],['custom','Tentukan tanggal sendiri']],v:'own'},

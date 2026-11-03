@@ -135,6 +135,16 @@ const Store=(()=>{
       });
       log('Buat tagihan bulanan',`${period}: ${n}`);save();return n;
     },
+    // Hapus pelanggan beserta tagihan dan pembayarannya
+    usage(id){const ids=d.invoices.filter(i=>i.customerId===id).map(i=>i.id);return{inv:ids.length,pay:d.payments.filter(p=>ids.includes(p.invoiceId)).length};},
+    removeCustomer(id){
+      const c=Store.customer(id);if(!c)throw new Error('Pelanggan tidak ditemukan');
+      const ids=d.invoices.filter(i=>i.customerId===id).map(i=>i.id),u=Store.usage(id);
+      d.payments=d.payments.filter(p=>!ids.includes(p.invoiceId));
+      d.invoices=d.invoices.filter(i=>i.customerId!==id);
+      d.customers=d.customers.filter(x=>x.id!==id);
+      log('Hapus pelanggan',`${id} ${c.name} (${u.inv} tagihan, ${u.pay} pembayaran)`);save();
+    },
     // Otomatis: buat tagihan bulan ini saat tanggal siklus pelanggan tiba, dan samakan jatuh tempo tagihan yang belum dibayar (aman dipanggil berulang)
     auto(){
       const t=localToday(),p=t.slice(0,7);let ch=0;
